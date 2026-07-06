@@ -1,0 +1,217 @@
+"""
+Lead scoring model for predicting conversion probability
+"""
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+import xgboost as xgb
+from lightgbm import LGBMClassifier
+from sklearn.ensemble import RandomForestClassifier
+import logging
+import joblib
+from typing import Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
+
+class LeadScorer:
+    """
+    Lead scoring model to predict conversion probability
+    """
+    
+    def __init__(self, model_type: str = "xgboost"):
+        self.model_type = model_type
+        self.model = None
+        self.scaler = StandardScaler()
+        self.label_encoders = {}
+        self.feature_importance = None
+        self.threshold = 0.5
+    
+    def prepare_features(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+        """
+        Prepare features for model training
+        """
+        logger.info("Preparing features...")
+        
+        # Select features
+        categorical_features = ['age_group', 'location', 'income_level', 'education', 'profession']
+        numerical_features = [
+            'website_visits', 'time_spent', 'pages_viewed', 'course_views',
+            'email_opens', 'click_through_rate', 'social_media_interaction',
+            'content_shares', 'event_attendance', 'engagement_score'
+        ]
+        
+        # Encode categorical features
+        for col in categorical_features:
+            le = LabelEncoder()
+            df[col + '_encoded'] = le.fit_transform(df[col].astype(str))
+            self.label_encoders[col] = le
+        
+        # Prepare feature matrix
+        feature_cols = numerical_features + [col + '_encoded' for col in categorical_features]
+        X = df[feature_cols].copy()
+        
+        # Handle missing values
+        X = X.fillna(0)
+        
+        # Target variable
+        y = df['converted'].values
+        
+        # Normalize numerical features
+        X_scaled = self.scaler.fit_transform(X)
+        
+        logger.info(f"Prepared {X.shape[1]} features")
+        return X_scaled, y, feature_cols
+    
+    def train(self, X: np.ndarray, y: np.ndarray, 
+              test_size: float = 0.2) -> Dict:
+        """
+        Train lead scoring model
+        """
+        logger.info(f"Training {self.model_type} model...")
+        
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=42, stratify=y
+        )
+        
+        # Initialize model
+        if self.model_type == "xgboost":
+            self.model = xgb.XGBClassifier(
+                n_estimators=100,
+                max_depth=6,
+                learning_rate=0.1,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=42
+            )
+        elif self.model_type == "lightgbm":
+            self.model = LGBMClassifier(
+                n_estimators=100,
+                max_depth=6,
+                learning_rate=0.1,
+                random_state=42
+            )
+        else:  # random_forest
+            self.model = RandomForestClassifier(
+                n_estimators=100,
+                max_depth=6,
+                random_state=42
+            )
+        
+        # Train model
+        self.model.fit(X_train, y_train)
+        
+        # Evaluate
+        metrics = self.evaluate(X_test, y_test)
+        
+        # Feature importance
+        if hasattr(self.model, 'feature_importances_'):
+            self.feature_importance = self.model.feature_importances_
+        
+        logger.info(f"Model trained. AUC-ROC: {metrics['auc_roc']:.4f}")
+        
+        return metrics
+    
+    def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> Dict:
+        """
+        Evaluate model performance
+        """
+        y_pred = self.model.predict(X_test)
+        y_pred_proba = self.model.predict_proba(X_test)[:, 1]
+        
+        metrics = {
+            'accuracy': accuracy_score(y_test, y_pred),
+            'precision': precision_score(y_test, y_pred),
+            'recall': recall_score(y_test, y_pred),
+            'f1': f1_score(y_test, y_pred),
+            'auc_roc': roc_auc_score(y_test, y_pred_proba)
+        }
+        
+        return metrics
+    
+    def predict(self, customer_data: Dict) -> Dict:
+        """
+        Predict conversion probability for a lead
+        """
+        # Convert customer data to feature vector
+        features = self._prepare_single_customer(customer_data)
+        
+        # Get probability
+        probability = self.model.predict_proba(features)[0, 1]
+        
+        # Get score (0-100 scale)
+        score = probability * 100
+        
+        # Determine segment based on score
+        if score > 80:
+            segment = "High-Value"
+        elif score > 60:
+            segment = "Engaged"
+        elif score > 40:
+            segment = "Casual"
+        else:
+            segment = "Low-Engagement"
+        
+        return {
+            'customer_id': customer_data.get('customer_id', 'unknown'),
+            'score': round(score, 1),
+            'probability': round(probability, 4),
+            'segment': segment,
+            'conversion_risk': 'High' if probability > 0.7 else 'Medium' if probability > 0.4 else 'Low',
+            'recommendations': self._get_recommendations(segment)
+        }
+    
+    def _prepare_single_customer(self, customer_data: Dict) -> np.ndarray:
+        """Prepare feature vector for a single customer"""
+        # This would be a subset of the training features
+        # Implement based on your feature engineering
+        return np.zeros((1, 20))  # Placeholder
+    
+    def _get_recommendations(self, segment: str) -> List[str]:
+        """Get recommendations based on segment"""
+        recommendations = {
+            "High-Value": [
+                "Send premium course recommendations",
+                "Offer exclusive discounts on advanced courses",
+                "Schedule personalized consultation"
+            ],
+            "Engaged": [
+                "Recommend relevant courses based on history",
+                "Send targeted content related to interests",
+                "Offer bundle packages"
+            ],
+            "Casual": [
+                "Send engaging content and testimonials",
+                "Provide free introductory resources",
+                "Offer limited-time promotions"
+            ],
+            "Low-Engagement": [
+                "Re-engage with personalized email campaigns",
+                "Offer free sample courses",
+                "Survey to understand interests and barriers"
+            ]
+        }
+        return recommendations.get(segment, ["Continue engagement efforts"])
+    
+    def save_model(self, path: str = "models/lead_scorer.joblib"):
+        """Save trained model"""
+        joblib.dump({
+            'model': self.model,
+            'scaler': self.scaler,
+            'label_encoders': self.label_encoders,
+            'feature_importance': self.feature_importance,
+            'model_type': self.model_type
+        }, path)
+        logger.info(f"Model saved to {path}")
+    
+    def load_model(self, path: str = "models/lead_scorer.joblib"):
+        """Load trained model"""
+        data = joblib.load(path)
+        self.model = data['model']
+        self.scaler = data['scaler']
+        self.label_encoders = data.get('label_encoders', {})
+        self.feature_importance = data.get('feature_importance')
+        self.model_type = data.get('model_type', 'xgboost')
+        logger.info(f"Model loaded from {path}")
