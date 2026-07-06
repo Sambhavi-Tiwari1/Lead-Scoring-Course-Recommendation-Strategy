@@ -1,0 +1,91 @@
+# Lead Scoring & Course Recommendation Configuration
+
+# System Settings
+system:
+  name: "Lead Scoring & Course Recommendation System"
+  version: "1.0.0"
+  log_level: INFO
+
+# Data Settings
+data:
+  raw_path: "data/raw/"
+  processed_path: "data/processed/"
+  sample_size: 5000
+  test_size: 0.2
+  random_seed: 42
+
+# Segmentation Settings
+segmentation:
+  methods:
+    - "demographic"
+    - "behavioral"
+    - "rfm"
+    - "psychographic"
+  rfm_weights:
+    recency: 0.4
+    frequency: 0.3
+    monetary: 0.3
+  num_segments: 4
+
+# Lead Scoring Settings
+scoring:
+  model_type: "xgboost"
+  features:
+    behavioral:
+      - "website_visits"
+      - "time_spent"
+      - "pages_viewed"
+      - "course_views"
+      - "email_opens"
+      - "click_through_rate"
+    demographic:
+      - "age_group"
+      - "location"
+      - "income_level"
+      - "education"
+      - "profession"
+    engagement:
+      - "social_media_interaction"
+      - "content_shares"
+      - "event_attendance"
+  hyperparameters:
+    n_estimators: 100
+    max_depth: 6
+    learning_rate: 0.1
+    min_child_weight: 1
+    subsample: 0.8
+    colsample_bytree: 0.8
+
+# Recommendation Settings
+recommendation:
+  algorithms:
+    - "content_based"
+    - "collaborative_filtering"
+    - "hybrid"
+  similarity_metric: "cosine"
+  top_n: 5
+  min_rating: 3.5
+  min_reviews: 10
+
+# Social Proof Settings
+social_proof:
+  rating_impact_factor: 0.5
+  review_count_impact_factor: 0.3
+  influence_score: 0.2
+
+# Marketing Settings
+marketing:
+  channels:
+    - "email"
+    - "social_media"
+    - "search_ads"
+    - "content_marketing"
+    - "referral"
+  conversion_lookup: 30  # days
+
+# Output Settings
+output:
+  results_path: "results/"
+  reports_path: "results/reports/"
+  figures_path: "results/figures/"
+  model_save_path: "models/"
